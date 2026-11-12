@@ -13,8 +13,8 @@ No build step needed — `main.js` is plain JavaScript.
 ## Releasing an update
 
 1. Bump `version` in `manifest.json` (and add it to `versions.json`).
-2. Commit, then push a tag with exactly that version, e.g. `git tag 1.0.1 && git push origin 1.0.1`.
-3. The *Release plugin* GitHub Action publishes the release; BRAT picks it up automatically.
+2. Commit and push to `main`.
+3. On GitHub, go to *Releases → Draft a new release*, create a tag with exactly that version (e.g. `1.0.1`) and publish. You don't need to attach anything: the *Release plugin* action adds `main.js`, `manifest.json` and `styles.css`, and BRAT picks up the update.
 
 ## Folder layout
 

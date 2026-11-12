@@ -1,11 +1,14 @@
 name: Release plugin
 
-# Push a tag that matches the version in manifest.json (e.g. 1.0.0) and this
-# workflow publishes a GitHub release with the files BRAT and Obsidian need.
+# Publish a release whose tag matches the version in manifest.json (e.g. 1.0.0) —
+# from GitHub's "Draft a new release" page or by pushing the tag — and this
+# workflow attaches the files BRAT and Obsidian need.
 on:
   push:
     tags:
       - "*"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -24,11 +27,15 @@ jobs:
             exit 1
           fi
 
-      - name: Create release
+      - name: Create the release or attach files to it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes "Hiking Log ${GITHUB_REF_NAME}" \
-            main.js manifest.json styles.css
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" main.js manifest.json styles.css --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Hiking Log ${GITHUB_REF_NAME}" \
+              main.js manifest.json styles.css
+          fi
