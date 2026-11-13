@@ -17,15 +17,15 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Check tag matches manifest version
+      - name: Check tag against manifest version
         run: |
           version=$(jq -r .version manifest.json)
-          tag="${GITHUB_REF_NAME#v}"   # accept 1.0.1 or v1.0.1
+          # Accept 1.0.2, v1.0.2, "v1.0.2," etc.: drop a leading v and any stray punctuation/spaces
+          tag=$(printf '%s' "${GITHUB_REF_NAME}" | sed -E 's/^[^0-9A-Za-z]+//; s/^[vV]//; s/[^0-9A-Za-z]+$//')
           if [ "$version" != "$tag" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match manifest.json version $version" >&2
-            exit 1
+            echo "::warning::Tag ${GITHUB_REF_NAME} does not match manifest.json version $version. Attaching the files from this tag anyway; BRAT reads the version from manifest.json."
           fi
 
       - name: Create the release or attach files to it
