@@ -43,6 +43,8 @@ Hikes from an older version (all notes in one `Hikes` folder) keep working. Run 
 - **Back to the dashboard:** the **← Dashboard** button at the top of every hike note.
 - **Change the cover photo:** hover a photo in the gallery → **Set cover**; or in the full-size viewer → **Set as cover**; or the 🖼 button on the hike card (also the *Change cover photo* command), which lets you pick any photo or choose no cover.
 - **Older notes with a "Diary" heading:** the plugin removes it automatically when Obsidian starts (there's also a *Remove the "Diary" heading from all hike notes* command). New hikes never have it.
+- **Move the cover photo:** hover the cover → **Reposition**, drag the photo to choose what shows, then **Save** (or **Center**). Stored as `cover_position`.
+- **Observations:** wildflowers, birds, animals, amphibians, insects, plants and more appear as pills under the stats on each hike card. Click **Add** to log one, or hover a pill and click × to remove it. Stored as `observations` (e.g. `- "Bird: Clark's nutcracker"`).
 - **Favorite a hike:** the ♥ on the hike card, the *Favorite* switch in the hike form, or *Toggle favorite on current hike*. Stored as `favorite: true`.
 - **Edit stats / add photos:** the ✏️ on the hike card, or *Edit stats / add photos to current hike*.
 
@@ -93,9 +95,9 @@ Your diary entry goes here, straight under the card…
 - Banner with ridgeline art, year/type filters and **Log hike**
 - Totals on one row: hikes, distance, time on trail, elevation gain, calories, average rating (they shrink to fit narrow panes)
 - Monthly chart (distance, elevation, time, calories or hike count)
-- Personal records, full width under the chart: longest hike, most climbing, longest day, most calories, top rated
-- Breakdown panels in two rows of three: hike types, route types, difficulty; ratings, top locations, favorites
-- Your 5 most recent hikes as photo cards, and a sortable log of every hike (♥ marks favorites)
+- Personal records, full width above the chart: longest hike, most climbing, longest day, most calories, top rated
+- Breakdown panels, three per row: hike types, route types, difficulty; ratings, top locations, favorites
+- Your 5 most recent hikes as photo cards, and a sortable, searchable log of every hike (♥ marks favorites). Search matches name, location, year, month, type, route, difficulty, rating (`5 stars`, `5★`), weather, companions, observations and `favorite`.
 
 Light and dark mode both get an earthy forest / moss / clay palette in frosted-glass panels over a greyscale contour map. The map is drawn once and stays put while you scroll — it never repeats.
 

@@ -1,7 +1,7 @@
 {
   "id": "hiking-log",
   "name": "Hiking Log",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minAppVersion": "1.4.0",
   "description": "Log hikes as diary entries with photos, ratings and stats, and explore them on a dashboard.",
   "author": "bearbaitdesigns",

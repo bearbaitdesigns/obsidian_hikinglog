@@ -19,6 +19,7 @@ const {
   normalizePath,
   setIcon,
   MarkdownRenderChild,
+  addIcon,
 } = require('obsidian');
 
 const VIEW_TYPE = 'hiking-dashboard';
@@ -44,6 +45,51 @@ const BASE_MET = {
 };
 
 const ROUTE_TYPES = ['Loop', 'Out and back', 'Point to point'];
+
+/* Trail observations (wildflowers, wildlife…), stored in frontmatter as "Type: name" strings */
+/* Lucide has no frog, so the plugin ships its own in the same line style (24-unit art scaled to Obsidian's 100-unit icon box) */
+const FROG_ICON =
+  '<g transform="scale(4.1667)" fill="none" stroke="currentColor" style="stroke-width: var(--icon-stroke, 2px)" stroke-linecap="round" stroke-linejoin="round">' +
+  '<circle cx="8" cy="6.5" r="2.5"/><circle cx="16" cy="6.5" r="2.5"/><path d="M5.8 8.2C3.6 9.9 2.6 12.6 3.2 15.2c.5 2.1 2.3 3.6 4.4 3.6h8.8c2.1 0 3.9-1.5 4.4-3.6.6-2.6-.4-5.3-2.6-7"/><path d="M9 11.6c1.9 1.1 4.1 1.1 6 0"/><path d="M7.6 18.8 6 21.5M16.4 18.8l1.6 2.7M4.5 21.5h3M16.5 21.5h3"/><path d="M8 6.5h.01M16 6.5h.01"/>' +
+  '</g>';
+
+const OBS_TYPES = [
+  { name: 'Wildflower', icon: 'flower-2', color: 'bloom', aliases: ['flower', 'flowers', 'wildflowers', 'bloom'] },
+  { name: 'Bird', icon: 'bird', color: 'sky', aliases: ['birds'] },
+  { name: 'Animal', icon: 'paw-print', color: 'clay', aliases: ['animals', 'wildlife', 'mammal', 'mammals', 'reptile', 'reptiles'] },
+  { name: 'Amphibian', icon: 'hk-frog', color: 'pond', aliases: ['amphibians', 'frog', 'frogs', 'toad', 'toads', 'salamander', 'newt'] },
+  { name: 'Insect', icon: 'bug', color: 'moss', aliases: ['insects', 'bug', 'bugs', 'butterfly', 'butterflies'] },
+  { name: 'Plant', icon: 'trees', color: 'forest', aliases: ['plants', 'tree', 'trees', 'fungi', 'fungus', 'mushroom', 'mushrooms', 'moss'] },
+  { name: 'Other', icon: 'eye', color: 'stone', aliases: [] },
+];
+
+function obsType(name) {
+  const s = String(name || '').trim().toLowerCase();
+  return OBS_TYPES.find((t) => t.name.toLowerCase() === s || t.aliases.includes(s)) || null;
+}
+
+/** "Bird: Bald eagle" -> { type, name }; anything without a known type becomes Other. */
+function parseObservation(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  const m = s.match(/^([^:]{1,20}):\s*(.+)$/);
+  const t = m ? obsType(m[1]) : null;
+  if (t) return { type: t, name: m[2].trim() };
+  return { type: OBS_TYPES[OBS_TYPES.length - 1], name: s };
+}
+
+function formatObservation(o) {
+  return `${o.type.name}: ${o.name}`;
+}
+
+/** "50% 30%" style focal point for cover photos */
+function parseCoverPosition(v) {
+  const m = String(v ?? '').trim().match(/^(\d{1,3}(?:\.\d+)?)%\s+(\d{1,3}(?:\.\d+)?)%$/);
+  if (!m) return null;
+  const x = Math.min(100, Math.max(0, parseFloat(m[1])));
+  const y = Math.min(100, Math.max(0, parseFloat(m[2])));
+  return { x, y, css: `${x}% ${y}%` };
+}
 const DIFFICULTIES = [
   { name: 'Easy', color: 'forest' },
   { name: 'Moderate', color: 'sky' },
@@ -473,6 +519,7 @@ function avgOf(items, key) {
 
 class HikingLogPlugin extends Plugin {
   async onload() {
+    if (typeof addIcon === 'function') addIcon('hk-frog', FROG_ICON);
     await this.loadSettings();
 
     this.registerView(VIEW_TYPE, (leaf) => new HikingDashboardView(leaf, this));
@@ -688,6 +735,10 @@ class HikingLogPlugin extends Plugin {
       caloriesEstimated: false,
       weather: fm.weather ? String(fm.weather) : '',
       companions: Array.isArray(fm.companions) ? fm.companions.join(', ') : fm.companions ? String(fm.companions) : '',
+      observations: (Array.isArray(fm.observations) ? fm.observations : fm.observations ? [fm.observations] : [])
+        .map(parseObservation)
+        .filter(Boolean),
+      coverPosition: parseCoverPosition(fm.cover_position),
       coverFile: null,
     };
 
@@ -833,8 +884,33 @@ class HikingLogPlugin extends Plugin {
     return now;
   }
 
+  async setCoverPosition(file, pos) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      if (pos) fm.cover_position = `${Math.round(pos.x)}% ${Math.round(pos.y)}%`;
+      else delete fm.cover_position;
+    });
+  }
+
+  async addObservation(file, obs) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const list = Array.isArray(fm.observations) ? fm.observations : fm.observations ? [fm.observations] : [];
+      list.push(formatObservation(obs));
+      fm.observations = list;
+    });
+  }
+
+  async removeObservation(file, index) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const list = Array.isArray(fm.observations) ? fm.observations : fm.observations ? [fm.observations] : [];
+      list.splice(index, 1);
+      if (list.length) fm.observations = list;
+      else delete fm.observations;
+    });
+  }
+
   async setCover(file, img) {
     await this.app.fileManager.processFrontMatter(file, (fm) => {
+      delete fm.cover_position; // a new photo starts centred
       fm.cover = img ? `[[${img.path}]]` : 'none';
     });
   }
@@ -1043,6 +1119,8 @@ class HikingLogPlugin extends Plugin {
     fm.calories = v.calories != null ? Math.round(v.calories) : null;
     fm.weather = v.weather || '';
     fm.companions = v.companions || '';
+    if (v.observations && v.observations.length) fm.observations = v.observations.map(formatObservation);
+    else delete fm.observations;
     if (photoPaths.length && !fm.cover) fm.cover = `[[${photoPaths[0]}]]`;
   }
 
@@ -1095,6 +1173,7 @@ class HikeModal extends Modal {
     };
     this.rating = h?.rating ? Math.round(h.rating) : 0;
     this.favorite = !!h?.favorite;
+    this.observations = (h?.observations || []).map((o) => ({ type: o.type, name: o.name }));
     this.photos = [];
     this.urls = [];
   }
@@ -1221,6 +1300,46 @@ class HikeModal extends Modal {
         .onChange((v) => (this.raw.companions = v))
     );
 
+    // Observations
+    contentEl.createEl('div', { cls: 'hk-modal-section', text: 'Observations' });
+    const obsWrap = contentEl.createDiv('hk-obs-editor');
+    const renderObs = () => {
+      obsWrap.empty();
+      this.observations.forEach((o, i) => {
+        const row = obsWrap.createDiv('hk-obs-edit-row');
+        const sel = row.createEl('select', { cls: 'dropdown' });
+        OBS_TYPES.forEach((t) => sel.createEl('option', { value: t.name, text: t.name }));
+        sel.value = o.type.name;
+        sel.addEventListener('change', () => {
+          o.type = obsType(sel.value);
+          renderObs();
+        });
+        const ic = row.createSpan(`hk-obs-edit-icon hk-c-${o.type.color}`);
+        setIcon(ic, o.type.icon);
+        const inp = row.createEl('input', { type: 'text', placeholder: 'What did you see?' });
+        inp.value = o.name;
+        inp.addEventListener('input', () => (o.name = inp.value));
+        const x = row.createEl('button', { cls: 'hk-obs-edit-remove clickable-icon', attr: { 'aria-label': 'Remove observation' } });
+        setIcon(x, 'x');
+        x.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.observations.splice(i, 1);
+          renderObs();
+        });
+      });
+      const add = obsWrap.createEl('button', { cls: 'hk-mini-btn hk-obs-add-btn' });
+      setIcon(add.createSpan('hk-inline-icon'), 'plus');
+      add.appendText('Add observation');
+      add.addEventListener('click', (e) => {
+        e.preventDefault();
+        const last = this.observations[this.observations.length - 1];
+        this.observations.push({ type: last ? last.type : OBS_TYPES[0], name: '' });
+        renderObs();
+        obsWrap.querySelectorAll('input')[this.observations.length - 1]?.focus();
+      });
+    };
+    renderObs();
+
     // Photos
     const ps = new Setting(contentEl)
       .setName('Photos')
@@ -1257,10 +1376,10 @@ class HikeModal extends Modal {
     });
 
     if (this.mode === 'create') {
-      contentEl.createEl('div', { cls: 'hk-modal-section', text: 'Your day' });
       const diary = contentEl.createEl('textarea', {
-        cls: 'hk-textarea',
+        cls: 'hk-textarea hk-diary-input',
         placeholder: 'How did the day go? The trail, the views, how you felt…',
+        attr: { 'aria-label': 'Diary' },
       });
       diary.rows = 6;
       diary.addEventListener('input', () => (this.raw.diary = diary.value));
@@ -1309,6 +1428,7 @@ class HikeModal extends Modal {
       calories: toNum(r.calories),
       weather: r.weather.trim(),
       companions: r.companions.trim(),
+      observations: this.observations.filter((o) => o.name.trim()).map((o) => ({ type: o.type, name: o.name.trim() })),
       diary: r.diary,
       notes: r.notes,
     };
@@ -1382,7 +1502,7 @@ class HikeCard extends MarkdownRenderChild {
       e.preventDefault();
       this.plugin.activateView();
     });
-    if (cover) el.createDiv('hk-card-cover').createEl('img', { attr: { src: cover, alt: h.title } });
+    if (cover) this.renderCover(el, file, h, cover);
 
     const body = el.createDiv('hk-card-body');
     createTopoLayer(body, file.path);
@@ -1447,6 +1567,29 @@ class HikeCard extends MarkdownRenderChild {
       stat('gauge', 'Pace', `${Math.floor(p)}:${pad(Math.round((p % 1) * 60) % 60)} ${U.pace}`);
     }
 
+    // Observations: wildflowers, wildlife, birds…
+    const obs = body.createDiv('hk-card-obs');
+    const chips = obs.createDiv({ cls: 'hk-obs-chips', attr: { 'aria-label': 'Observations' } });
+    h.observations.forEach((o, i) => {
+      const chip = chips.createSpan({ cls: `hk-obs-chip hk-c-${o.type.color}`, attr: { title: `${o.type.name}: ${o.name}` } });
+      setIcon(chip.createSpan('hk-obs-icon'), o.type.icon);
+      chip.createSpan({ cls: 'hk-obs-name', text: o.name });
+      const x = chip.createEl('button', { cls: 'hk-obs-remove', attr: { 'aria-label': `Remove ${o.name}` } });
+      setIcon(x, 'x');
+      x.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.plugin.removeObservation(file, i);
+      });
+    });
+    const add = chips.createEl('button', { cls: 'hk-obs-chip hk-obs-add' });
+    setIcon(add.createSpan('hk-obs-icon'), 'plus');
+    add.createSpan({ text: h.observations.length ? 'Add' : 'Add an observation' });
+    add.addEventListener('click', (e) => {
+      e.preventDefault();
+      new ObservationModal(this.plugin, file).open();
+    });
+
     if (h.weather || h.companions) {
       const extra = body.createDiv('hk-card-extra');
       if (h.weather) {
@@ -1460,6 +1603,167 @@ class HikeCard extends MarkdownRenderChild {
         c.appendText(h.companions);
       }
     }
+  }
+
+  /** Cover photo you can drag to choose which part shows (saved as cover_position). */
+  renderCover(el, file, h, url) {
+    const wrap = el.createDiv('hk-card-cover');
+    const img = wrap.createEl('img', { attr: { src: url, alt: h.title, draggable: 'false' } });
+    let pos = h.coverPosition ? { x: h.coverPosition.x, y: h.coverPosition.y } : { x: 50, y: 50 };
+    const apply = () => (img.style.objectPosition = `${pos.x}% ${pos.y}%`);
+    apply();
+
+    const btn = wrap.createEl('button', { cls: 'hk-cover-adjust', attr: { 'aria-label': 'Reposition cover photo' } });
+    setIcon(btn.createSpan('hk-inline-icon'), 'move');
+    btn.appendText('Reposition');
+
+    let editing = false;
+    let start = null;
+    let saved = { ...pos };
+    const bar = wrap.createDiv('hk-cover-bar');
+    bar.createSpan({ cls: 'hk-cover-hint', text: 'Drag the photo to reposition' });
+    const actions = bar.createDiv('hk-cover-actions');
+    const cancel = actions.createEl('button', { cls: 'hk-cover-cancel', text: 'Cancel' });
+    const reset = actions.createEl('button', { cls: 'hk-cover-cancel', text: 'Center' });
+    const save = actions.createEl('button', { cls: 'hk-cover-save', text: 'Save' });
+
+    const setEditing = (on) => {
+      editing = on;
+      wrap.toggleClass('is-repositioning', on);
+    };
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      saved = { ...pos };
+      setEditing(true);
+    });
+    cancel.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pos = { ...saved };
+      apply();
+      setEditing(false);
+    });
+    reset.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pos = { x: 50, y: 50 };
+      apply();
+    });
+    save.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setEditing(false);
+      await this.plugin.setCoverPosition(file, pos.x === 50 && pos.y === 50 ? null : pos);
+    });
+
+    // How far (in px) the photo overflows the frame on each axis, given object-fit: cover
+    const overflow = () => {
+      const cw = wrap.clientWidth;
+      const ch = wrap.clientHeight;
+      const nw = img.naturalWidth || cw;
+      const nh = img.naturalHeight || ch;
+      const scale = Math.max(cw / nw, ch / nh);
+      return { x: nw * scale - cw, y: nh * scale - ch };
+    };
+    wrap.addEventListener('pointerdown', (e) => {
+      if (!editing || e.button !== 0 || e.target.closest('button')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      start = { px: e.clientX, py: e.clientY, x: pos.x, y: pos.y, o: overflow() };
+      wrap.setPointerCapture(e.pointerId);
+      wrap.addClass('is-dragging');
+    });
+    wrap.addEventListener('pointermove', (e) => {
+      if (!start) return;
+      const dx = e.clientX - start.px;
+      const dy = e.clientY - start.py;
+      const clamp = (v) => Math.min(100, Math.max(0, v));
+      if (start.o.x > 1) pos.x = clamp(start.x - (dx / start.o.x) * 100);
+      if (start.o.y > 1) pos.y = clamp(start.y - (dy / start.o.y) * 100);
+      apply();
+    });
+    const end = (e) => {
+      if (!start) return;
+      start = null;
+      wrap.removeClass('is-dragging');
+      try {
+        wrap.releasePointerCapture(e.pointerId);
+      } catch (_) {
+        /* already released */
+      }
+    };
+    wrap.addEventListener('pointerup', end);
+    wrap.addEventListener('pointercancel', end);
+    // keep clicks inside the cover from reaching the editor
+    wrap.addEventListener('mousedown', (e) => editing && e.stopPropagation());
+    wrap.addEventListener('click', (e) => editing && e.stopPropagation());
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Quick "add observation" dialog                                     */
+/* ------------------------------------------------------------------ */
+
+class ObservationModal extends Modal {
+  constructor(plugin, file) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.file = file;
+    this.type = OBS_TYPES[0];
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    this.modalEl.addClass('hk-modal', 'hk-obs-modal');
+    this.titleEl.setText('Add an observation');
+
+    const types = contentEl.createDiv('hk-obs-types');
+    const paint = () => types.querySelectorAll('button').forEach((b) => b.toggleClass('is-on', b.dataset.type === this.type.name));
+    for (const t of OBS_TYPES) {
+      const b = types.createEl('button', { cls: `hk-obs-type hk-c-${t.color}` });
+      b.dataset.type = t.name;
+      setIcon(b.createSpan('hk-obs-type-icon'), t.icon);
+      b.createSpan({ text: t.name });
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.type = t;
+        paint();
+        this.input.focus();
+      });
+    }
+    paint();
+
+    this.input = contentEl.createEl('input', { type: 'text', cls: 'hk-obs-input', placeholder: 'e.g. Indian paintbrush, mule deer, red-tailed hawk' });
+    const footer = contentEl.createDiv('hk-modal-footer');
+    const another = footer.createEl('button', { text: 'Add another' });
+    const done = footer.createEl('button', { cls: 'mod-cta', text: 'Add' });
+    const submit = async (keepOpen) => {
+      const name = this.input.value.trim();
+      if (!name) {
+        this.input.focus();
+        return;
+      }
+      await this.plugin.addObservation(this.file, { type: this.type, name });
+      if (keepOpen) {
+        this.input.value = '';
+        this.input.focus();
+        new Notice(`Added ${name}`);
+      } else this.close();
+    };
+    another.addEventListener('click', () => submit(true));
+    done.addEventListener('click', () => submit(false));
+    this.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit(false);
+      }
+    });
+    setTimeout(() => this.input.focus(), 0);
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -1938,6 +2242,8 @@ class HikingDashboardView extends ItemView {
     const root = this.scrollEl;
     if (!root) return;
     const scroll = root.scrollTop;
+    const ae = root.ownerDocument.activeElement;
+    const searchFocused = !!(ae && root.contains(ae) && ae.classList.contains('hk-search-input'));
     root.empty();
 
     const s = this.plugin.settings;
@@ -2027,27 +2333,7 @@ class HikingDashboardView extends ItemView {
     this.card(cards, 'ember', 'flame', 'Calories', `${fmtNum(sumOf(hikes, 'calories'), 0)}`, anyEst ? 'kcal · includes estimates' : 'kcal');
     this.card(cards, 'sun', 'star', 'Avg rating', avgRating ? `${fmtNum(avgRating, 1)} ★` : '—', `${rated.length} rated`);
 
-    /* Monthly chart */
-    const chartPanel = root.createDiv('hk-panel');
-    const ch = chartPanel.createDiv('hk-panel-head');
-    this.heading(ch, 'bar-chart-3', 'Monthly activity');
-    const tabs = ch.createDiv('hk-tabs');
-    [
-      ['distance', 'Distance'],
-      ['elevation', 'Elevation'],
-      ['duration', 'Time'],
-      ['calories', 'Calories'],
-      ['count', 'Hikes'],
-    ].forEach(([k, l]) => {
-      const b = tabs.createEl('button', { cls: 'hk-tab' + (this.chartMetric === k ? ' is-active' : ''), text: l });
-      b.addEventListener('click', () => {
-        this.chartMetric = k;
-        this.render();
-      });
-    });
-    this.renderMonthly(chartPanel, hikes);
-
-    /* Personal records — full-width row directly under the chart */
+    /* Personal records — full-width row above the monthly chart */
     const recPanel = this.panel(root, 'Personal records', 'trophy');
     const best = (key) => hikes.filter((h) => h[key] != null).sort((a, b) => b[key] - a[key])[0];
     const topRated = [...rated].sort((a, b) => b.rating - a.rating || (b.date || 0) - (a.date || 0))[0];
@@ -2075,6 +2361,26 @@ class HikingDashboardView extends ItemView {
     } else {
       recPanel.createDiv({ cls: 'hk-muted', text: 'Log some stats to start setting records.' });
     }
+
+    /* Monthly chart */
+    const chartPanel = root.createDiv('hk-panel');
+    const ch = chartPanel.createDiv('hk-panel-head');
+    this.heading(ch, 'bar-chart-3', 'Monthly activity');
+    const tabs = ch.createDiv('hk-tabs');
+    [
+      ['distance', 'Distance'],
+      ['elevation', 'Elevation'],
+      ['duration', 'Time'],
+      ['calories', 'Calories'],
+      ['count', 'Hikes'],
+    ].forEach(([k, l]) => {
+      const b = tabs.createEl('button', { cls: 'hk-tab' + (this.chartMetric === k ? ' is-active' : ''), text: l });
+      b.addEventListener('click', () => {
+        this.chartMetric = k;
+        this.render();
+      });
+    });
+    this.renderMonthly(chartPanel, hikes);
 
     /* Breakdown grid */
     const grid = root.createDiv('hk-grid');
@@ -2165,7 +2471,10 @@ class HikingDashboardView extends ItemView {
       c.addEventListener('click', () => this.plugin.openFile(h.file));
       const img = this.plugin.coverUrl(h);
       const cover = c.createDiv('hk-recent-cover');
-      if (img) cover.createEl('img', { attr: { src: img, alt: h.title, loading: 'lazy' } });
+      if (img) {
+        const im = cover.createEl('img', { attr: { src: img, alt: h.title, loading: 'lazy' } });
+        if (h.coverPosition) im.style.objectPosition = h.coverPosition.css;
+      }
       else setIcon(cover.createDiv('hk-recent-placeholder'), 'mountain');
       if (h.type) cover.createSpan({ cls: 'hk-badge hk-badge-float', text: h.type });
       if (h.favorite) setIcon(cover.createSpan({ cls: 'hk-fav-float', attr: { 'aria-label': 'Favorite' } }), 'heart');
@@ -2189,10 +2498,17 @@ class HikingDashboardView extends ItemView {
     }
 
     /* Log table */
-    const logPanel = this.panel(root, `Hike log (${hikes.length})`, 'book-open');
+    const logPanel = root.createDiv('hk-panel');
     this.renderTable(logPanel, hikes, U);
 
     root.scrollTop = scroll;
+    if (searchFocused) {
+      const inp = root.querySelector('.hk-search-input');
+      if (inp) {
+        inp.focus();
+        inp.setSelectionRange(inp.value.length, inp.value.length);
+      }
+    }
   }
 
   /* ---------- dashboard building blocks ---------- */
@@ -2325,7 +2641,55 @@ class HikingDashboardView extends ItemView {
     });
   }
 
+  /** Everything a hike can be found by in the log search. */
+  searchText(h) {
+    const parts = [h.title, h.location, h.type, h.route, h.difficulty, h.weather, h.companions, h.dateStr];
+    if (h.date) {
+      parts.push(String(h.date.getFullYear()));
+      parts.push(h.date.toLocaleString(undefined, { month: 'long' }), h.date.toLocaleString(undefined, { month: 'short' }));
+      parts.push(h.date.toLocaleString('en', { month: 'long' }));
+    }
+    if (h.rating) {
+      const r = Math.round(h.rating);
+      parts.push(`${r}★`, `${r}-star`, `${r} star`, `${r} stars`, `rating ${r}`, '★'.repeat(r));
+    } else parts.push('unrated');
+    if (h.favorite) parts.push('favorite', 'favourite', 'fav', '♥');
+    for (const o of h.observations || []) parts.push(o.name, o.type.name);
+    if (h.route === 'Out and back') parts.push('out & back', 'out-and-back');
+    if (h.route === 'Point to point') parts.push('point-to-point', 'p2p');
+    return parts.filter(Boolean).join(' · ').toLowerCase();
+  }
+
+  /** Every word in the query must appear somewhere; "5 stars" / "5★" / "rating 5" match ratings. */
+  matchesQuery(h, q) {
+    const norm = q
+      .toLowerCase()
+      .replace(/\b([1-5])\s*(?:stars?|★)/g, '$1★')
+      .replace(/\brating\s*:?\s*([1-5])\b/g, '$1★')
+      .replace(/\bout\s*(?:and|&)\s*back\b/g, 'out-and-back')
+      .replace(/\bpoint\s*to\s*point\b/g, 'point-to-point');
+    const words = norm.split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const hay = this.searchText(h);
+    return words.every((w) => hay.includes(w));
+  }
+
   renderTable(parent, hikes, U) {
+    // Header: title with live count + search box
+    const head = parent.createDiv('hk-panel-head hk-log-head');
+    const h3 = this.heading(head, 'book-open', '');
+    const titleSpan = h3.querySelector('span:last-child');
+    const search = head.createDiv('hk-search');
+    setIcon(search.createSpan('hk-search-icon'), 'search');
+    const input = search.createEl('input', {
+      type: 'search',
+      cls: 'hk-search-input',
+      attr: { placeholder: 'Search year, trail, difficulty, rating, route…', 'aria-label': 'Search hikes', spellcheck: 'false' },
+    });
+    input.value = this.query || '';
+    const clear = search.createEl('button', { cls: 'hk-search-clear', attr: { 'aria-label': 'Clear search' } });
+    setIcon(clear, 'x');
+
     const cols = [
       ['date', 'Date'],
       ['title', 'Hike'],
@@ -2367,7 +2731,42 @@ class HikingDashboardView extends ItemView {
     });
 
     const tbody = table.createEl('tbody');
-    for (const h of rows) {
+    const empty = parent.createDiv({ cls: 'hk-search-empty hk-muted' });
+    const fill = () => {
+      const q = (this.query || '').trim();
+      const shown = q ? rows.filter((h) => this.matchesQuery(h, q)) : rows;
+      titleSpan.setText(q ? `Hike log (${shown.length} of ${hikes.length})` : `Hike log (${hikes.length})`);
+      search.toggleClass('has-value', !!q);
+      tbody.empty();
+      empty.setText(shown.length ? '' : `No hikes match “${q}”.`);
+      empty.toggleClass('hk-hidden', !!shown.length);
+      for (const h of shown) this.renderRow(tbody, h);
+    };
+    input.addEventListener('input', () => {
+      this.query = input.value;
+      fill();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && input.value) {
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = '';
+        this.query = '';
+        fill();
+      }
+    });
+    clear.addEventListener('click', (e) => {
+      e.preventDefault();
+      input.value = '';
+      this.query = '';
+      fill();
+      input.focus();
+    });
+    fill();
+  }
+
+  renderRow(tbody, h) {
+    {
       const r = tbody.createEl('tr');
       r.addEventListener('click', () => this.plugin.openFile(h.file));
       r.createEl('td', { text: h.dateStr || '—', cls: 'hk-nowrap' });
