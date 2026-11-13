@@ -12,9 +12,9 @@ No build step needed — `main.js` is plain JavaScript.
 
 ## Releasing an update
 
-1. Bump `version` in `manifest.json` (and add it to `versions.json`).
-2. Commit and push to `main`.
-3. On GitHub, go to *Releases → Draft a new release*, create a tag with that version (e.g. `1.0.1` or `v1.0.1`) and publish. You don't need to attach anything: the *Release plugin* action adds `main.js`, `manifest.json` and `styles.css`, and BRAT picks up the update.
+1. Bump `version` in `manifest.json` (and add it to `versions.json`), commit and push to `main`.
+2. The *Release Obsidian plugin* action creates a release with that version as its tag (e.g. `1.0.3`) and attaches `main.js`, `manifest.json` and `styles.css`. BRAT picks it up automatically.
+3. To run it by hand (for example to re-attach the files), open **Actions → Release Obsidian plugin → Run workflow**.
 
 ## Folder layout
 

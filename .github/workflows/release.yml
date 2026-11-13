@@ -1,14 +1,20 @@
-name: Release plugin
+# Creates a GitHub release for the plugin (used by BRAT and manual installs) and attaches
+# main.js, manifest.json and styles.css.
+#
+# Runs automatically when manifest.json changes on main: if there's no release yet for the
+# "version" in manifest.json, it creates one (with a tag of the same name, e.g. 1.0.2).
+# You can also run it by hand from the Actions tab ("Run workflow"), publish a release on
+# GitHub, or push a version tag; in every case the files are (re)attached.
+name: Release Obsidian plugin
 
-# Publish a release whose tag matches the version in manifest.json (e.g. 1.0.0) —
-# from GitHub's "Draft a new release" page or by pushing the tag — and this
-# workflow attaches the files BRAT and Obsidian need.
 on:
   push:
-    tags:
-      - "*"
+    branches: [main]
+    paths: [manifest.json, .github/workflows/release.yml]
+    tags: ["*"]
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,24 +25,36 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Check tag against manifest version
+      - name: Work out the version
+        id: v
         run: |
-          version=$(jq -r .version manifest.json)
-          # Accept 1.0.2, v1.0.2, "v1.0.2," etc.: drop a leading v and any stray punctuation/spaces
-          tag=$(printf '%s' "${GITHUB_REF_NAME}" | sed -E 's/^[^0-9A-Za-z]+//; s/^[vV]//; s/[^0-9A-Za-z]+$//')
-          if [ "$version" != "$tag" ]; then
-            echo "::warning::Tag ${GITHUB_REF_NAME} does not match manifest.json version $version. Attaching the files from this tag anyway; BRAT reads the version from manifest.json."
+          version=$(node -p "require('./manifest.json').version")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="$version"
           fi
+          # Older releases here were tagged v1.0.0 style, so allow a leading "v"
+          if [ "${tag#v}" != "$version" ]; then
+            echo "Tag $tag does not match manifest.json version $version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Create the release or attach files to it
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" main.js manifest.json styles.css --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" main.js manifest.json styles.css --clobber
+            echo "Updated files on release $TAG"
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              --title "${GITHUB_REF_NAME}" \
-              --notes "Hiking Log ${GITHUB_REF_NAME}" \
-              main.js manifest.json styles.css
+            gh release create "$TAG" main.js manifest.json styles.css \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes "Hiking Log $TAG. Install with BRAT: Settings → BRAT → Add beta plugin → bearbaitdesigns/obsidian_hikinglog."
+            echo "Created release $TAG"
           fi
